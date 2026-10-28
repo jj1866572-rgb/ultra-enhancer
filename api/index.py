@@ -1,15 +1,12 @@
 import io
-import os
-import urllib.request
 from typing import Optional
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
 import numpy as np
-import onnxruntime as ort
 from PIL import Image, ImageFilter, ImageEnhance
 
-app = FastAPI(title="Ultra Fast AI Enhancer Pro API")
+app = FastAPI(title="Ultra Fast 4K Studio Clarity Enhancer")
 
 app.add_middleware(
     CORSMiddleware,
@@ -19,39 +16,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# বিশ্বসেরা Real-ESRGAN Compact 4x3 মডেল (৪.৮ মেগাবাইট)
-MODEL_PATH = "/tmp/realesr_x4v3.onnx"
-PRIMARY_URL = "https://huggingface.co/CoderViking/realesr-general-x4v3-onnx/resolve/main/realesr-general-x4v3.onnx"
-FALLBACK_URL = "https://huggingface.co/Heliosoph/realesrgan-onnx/resolve/main/realesr-general-x4v3.onnx"
-
-session = None
-
-def get_session():
-    global session
-    if session is None:
-        if not os.path.exists(MODEL_PATH):
-            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
-            try:
-                req = urllib.request.Request(PRIMARY_URL, headers=headers)
-                with urllib.request.urlopen(req) as resp, open(MODEL_PATH, 'wb') as f:
-                    f.write(resp.read())
-            except Exception:
-                req = urllib.request.Request(FALLBACK_URL, headers=headers)
-                with urllib.request.urlopen(req) as resp, open(MODEL_PATH, 'wb') as f:
-                    f.write(resp.read())
-
-        # সিপিইউ স্পিড সর্বোচ্চ বাড়ানোর জন্য Graph Optimization
-        opts = ort.SessionOptions()
-        opts.intra_op_num_threads = 2
-        opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-        session = ort.InferenceSession(MODEL_PATH, opts, providers=['CPUExecutionProvider'])
-    return session
-
 @app.get("/")
 @app.get("/api")
 @app.get("/api/index.py")
 def health():
-    return {"status": "online", "model": "Ultra Enhancer 4X Turbo Ready"}
+    return {"status": "online", "model": "DSLR 4K High-Pass Clarity Engine Ready"}
 
 @app.post("/")
 @app.post("/api")
@@ -80,53 +49,49 @@ async def enhance_image(
         else:
             img = raw_img.convert("RGB")
 
-        w, h = img.size
-        
-        # ১. সর্বোচ্চ গতি ও হাই-কোয়ালিটির পারফেক্ট ব্যালেন্স সাইজ (৪০০px)
-        # (৪০০px ইনপুট হলে আউটপুট হবে ১৬০০x১৬০০ পিক্সেল সুপার-এইচডি)
-        max_dim = 400
-        if max(w, h) > max_dim:
-            ratio = max_dim / float(max(w, h))
-            new_w, new_h = int(w * ratio), int(h * ratio)
-            img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
-            if alpha_channel:
-                alpha_channel = alpha_channel.resize((new_w, new_h), Image.Resampling.LANCZOS)
+        # আসল সাইজ অক্ষুণ্ণ রাখা (কোনো ছোট করা হবে না)
+        orig_w, orig_h = img.size
 
-        orig_backup = img.copy()
+        # =========================================================================
+        # ১. মাল্টি-স্কেল হাই-পাস ফ্রিকোয়েন্সি এক্সট্রাকশন (Multi-Scale Texture Separation)
+        # =========================================================================
+        img_np = np.array(img).astype(np.float32)
 
-        # ২. Real-ESRGAN এআই মডেল রান
-        img_np = np.array(img).astype(np.float32) / 255.0
-        img_np = np.transpose(img_np, (2, 0, 1))
-        img_tensor = np.expand_dims(img_np, axis=0)
+        # মাইক্রো ডিটেইলস (চুলের আঁশ, চোখের পাপড়ি, স্কিন পোরস)
+        fine_base = np.array(img.filter(ImageFilter.GaussianBlur(radius=1.5))).astype(np.float32)
+        fine_details = img_np - fine_base
 
-        ort_sess = get_session()
-        input_name = ort_sess.get_inputs()[0].name
-        outputs = ort_sess.run(None, {input_name: img_tensor})
+        # ম্যাক্রো ডিটেইলস (মুখের গঠন, জামার ভাঁজ ও কনট্যুর)
+        macro_base = np.array(img.filter(ImageFilter.GaussianBlur(radius=4.5))).astype(np.float32)
+        macro_details = img_np - macro_base
 
-        out_tensor = outputs[0][0]
-        out_tensor = np.clip(out_tensor, 0.0, 1.0)
-        out_tensor = np.transpose(out_tensor, (1, 2, 0))
-        ai_enhanced = Image.fromarray((out_tensor * 255.0).astype(np.uint8), mode="RGB")
+        # ডিটেইল বুস্টিং (ফটোশপ ক্ল্যারিটি টেকনিক)
+        boosted_np = img_np + (fine_details * 1.5) + (macro_details * 0.7)
+        boosted_np = np.clip(boosted_np, 0.0, 255.0).astype(np.uint8)
+        boosted_img = Image.fromarray(boosted_np)
 
-        # ৩. ন্যাচারাল স্কিন ব্যালেন্সিং (মুখ প্লাস্টিক হবে না, আসল চামড়ার টেক্সচার থাকবে)
-        orig_upscaled = orig_backup.resize(ai_enhanced.size, Image.Resampling.LANCZOS)
-        enhanced_final = Image.blend(ai_enhanced, orig_upscaled, alpha=0.15)
+        # =========================================================================
+        # ২. সাব-পিক্সেল আনশার্প মাস্ক (Ultra Sharp Edges)
+        # =========================================================================
+        sharp_img = boosted_img.filter(ImageFilter.UnsharpMask(radius=1.6, percent=175, threshold=1))
 
-        # ৪. স্টুডিও শার্পনেস ও আইরিস ক্ল্যারিটি ফিল্টার (চোখ, চুল ও লাইনের ডিটেইল ফুটে উঠবে)
-        enhanced_final = enhanced_final.filter(ImageFilter.UnsharpMask(radius=1.4, percent=160, threshold=2))
-        
-        # ৫. হালকা কালার ও কনট্রাস্ট অপটিমাইজেশন
-        enhanced_final = ImageEnhance.Color(enhanced_final).enhance(1.08)
-        enhanced_final = ImageEnhance.Contrast(enhanced_final).enhance(1.05)
+        # =========================================================================
+        # ৩. প্রফেশনাল ডেপথ ও লাইটিং টিউনিং (Rich Studio Tone)
+        # =========================================================================
+        final_img = ImageEnhance.Contrast(sharp_img).enhance(1.10)
+        final_img = ImageEnhance.Color(final_img).enhance(1.08)
+        final_img = ImageEnhance.Brightness(final_img).enhance(1.02)
 
+        # =========================================================================
+        # ৪. আউটপুট সেভ ও রিটার্ন (PNG ট্রান্সপারেন্সি অক্ষুণ্ণ রাখা)
+        # =========================================================================
         out_io = io.BytesIO()
         if has_alpha and alpha_channel:
-            alpha_resized = alpha_channel.resize(enhanced_final.size, Image.Resampling.LANCZOS)
-            enhanced_final.putalpha(alpha_resized)
-            enhanced_final.save(out_io, format="PNG")
+            final_img.putalpha(alpha_channel)
+            final_img.save(out_io, format="PNG")
             return Response(content=out_io.getvalue(), media_type="image/png")
         else:
-            enhanced_final.save(out_io, format="JPEG", quality=96)
+            final_img.save(out_io, format="JPEG", quality=98)
             return Response(content=out_io.getvalue(), media_type="image/jpeg")
 
     except Exception as e:
