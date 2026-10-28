@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import numpy as np
 from PIL import Image, ImageFilter, ImageEnhance
 
-app = FastAPI(title="Ultra Fast 4K Studio Clarity Enhancer")
+app = FastAPI(title="Natural Studio HD Enhancer")
 
 app.add_middleware(
     CORSMiddleware,
@@ -20,7 +20,7 @@ app.add_middleware(
 @app.get("/api")
 @app.get("/api/index.py")
 def health():
-    return {"status": "online", "model": "DSLR 4K High-Pass Clarity Engine Ready"}
+    return {"status": "online", "model": "Natural Studio HD Ready"}
 
 @app.post("/")
 @app.post("/api")
@@ -49,42 +49,26 @@ async def enhance_image(
         else:
             img = raw_img.convert("RGB")
 
-        # আসল সাইজ অক্ষুণ্ণ রাখা (কোনো ছোট করা হবে না)
-        orig_w, orig_h = img.size
+        # ১. মৃদু নয়েজ রিমুভাল (ডিজিটাল গ্রেইন মুছে ত্বক ফ্রেশ করা)
+        # এতে মুখের অতিরিক্ত কর্কশ ভাব দূর হবে কিন্তু আসল রূপ ঠিক থাকবে
+        smooth_base = img.filter(ImageFilter.SMOOTH)
+        clean_img = Image.blend(img, smooth_base, alpha=0.15)
 
-        # =========================================================================
-        # ১. মাল্টি-স্কেল হাই-পাস ফ্রিকোয়েন্সি এক্সট্রাকশন (Multi-Scale Texture Separation)
-        # =========================================================================
-        img_np = np.array(img).astype(np.float32)
+        # ২. ব্যালান্সড স্মার্ট আনশার্প মাস্ক (Balanced Pro Clarity)
+        # threshold=3 দেওয়ায় ত্বকের মসৃণ অংশ পুড়বে না, 
+        # শুধু চোখের তারা, ভ্রু, চুল ও শার্টের ধারগুলো ক্রিস্টাল ক্লিয়ার হবে
+        sharp_img = clean_img.filter(
+            ImageFilter.UnsharpMask(radius=1.2, percent=65, threshold=3)
+        )
 
-        # মাইক্রো ডিটেইলস (চুলের আঁশ, চোখের পাপড়ি, স্কিন পোরস)
-        fine_base = np.array(img.filter(ImageFilter.GaussianBlur(radius=1.5))).astype(np.float32)
-        fine_details = img_np - fine_base
+        # ৩. অতিরিক্ত সূক্ষ্ম ডিটেইল এনহ্যান্সমেন্ট
+        refined_img = ImageEnhance.Sharpness(sharp_img).enhance(1.18)
 
-        # ম্যাক্রো ডিটেইলস (মুখের গঠন, জামার ভাঁজ ও কনট্যুর)
-        macro_base = np.array(img.filter(ImageFilter.GaussianBlur(radius=4.5))).astype(np.float32)
-        macro_details = img_np - macro_base
+        # ৪. সফট ও ন্যাচারাল টোন টিউনিং (কোনো কালার বার্ন বা ফেটে যাওয়া হবে না)
+        final_img = ImageEnhance.Contrast(refined_img).enhance(1.03)
+        final_img = ImageEnhance.Color(final_img).enhance(1.02)
 
-        # ডিটেইল বুস্টিং (ফটোশপ ক্ল্যারিটি টেকনিক)
-        boosted_np = img_np + (fine_details * 1.5) + (macro_details * 0.7)
-        boosted_np = np.clip(boosted_np, 0.0, 255.0).astype(np.uint8)
-        boosted_img = Image.fromarray(boosted_np)
-
-        # =========================================================================
-        # ২. সাব-পিক্সেল আনশার্প মাস্ক (Ultra Sharp Edges)
-        # =========================================================================
-        sharp_img = boosted_img.filter(ImageFilter.UnsharpMask(radius=1.6, percent=175, threshold=1))
-
-        # =========================================================================
-        # ৩. প্রফেশনাল ডেপথ ও লাইটিং টিউনিং (Rich Studio Tone)
-        # =========================================================================
-        final_img = ImageEnhance.Contrast(sharp_img).enhance(1.10)
-        final_img = ImageEnhance.Color(final_img).enhance(1.08)
-        final_img = ImageEnhance.Brightness(final_img).enhance(1.02)
-
-        # =========================================================================
-        # ৪. আউটপুট সেভ ও রিটার্ন (PNG ট্রান্সপারেন্সি অক্ষুণ্ণ রাখা)
-        # =========================================================================
+        # ৫. আউটপুট তৈরি (PNG ট্রান্সপারেন্সি অক্ষুণ্ণ রাখা)
         out_io = io.BytesIO()
         if has_alpha and alpha_channel:
             final_img.putalpha(alpha_channel)
